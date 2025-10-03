@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Inventory Service Middleware — Refined Prototype (Self-Explanatory + Channel-first)</title>
+<style>
+  :root{--bg:#ffffff;--fg:#0f172a;--muted:#475569;--soft:#f8fafc;--brand:#2563eb;--ok:#16a34a;--warn:#f59e0b;--bad:#ef4444;--card:#ffffff;--border:#e2e8f0;--ink:#111827}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto;background:var(--bg);color:var(--fg)}
+  .app{display:grid;grid-template-columns:260px 1fr;min-height:100vh}
+  .sidebar{border-right:1px solid var(--border);padding:16px;background:#f9fafb}
+  .logo{font-weight:800;font-size:18px;margin:6px 8px 18px;color:var(--brand)}
+  .nav-group{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;margin:14px 8px 6px}
+  .nav{display:grid;gap:6px;margin-bottom:12px}
+  .nav button{appearance:none;border:0;background:transparent;text-align:left;padding:10px 12px;border-radius:8px;cursor:pointer;color:var(--muted);font-weight:600}
+  .nav button:hover{background:var(--soft);color:var(--fg)}
+  .nav button.active{background:var(--brand);color:#fff}
+  .content{padding:20px}
+  .title{display:flex;justify-content:space-between;align-items:center}
+  .title h1{font-size:20px;margin:0;color:var(--brand)}
+  .title .meta{color:var(--muted);font-size:12px}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 16px}
+  .btn{border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 10px;cursor:pointer;font-weight:600;font-size:13px}
+  .btn.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .cards{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
+  .card{grid-column:span 12;border:1px solid var(--border);border-radius:12px;background:var(--card);padding:16px}
+  .card.h6{grid-column:span 6}
+  .card.h4{grid-column:span 4}
+  .card.h8{grid-column:span 8}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600}
+  .ok{background:#dcfce7;color:#166534}
+  .warn{background:#fef3c7;color:#92400e}
+  .bad{background:#fee2e2;color:#991b1b}
+  .info{background:#e0f2fe;color:#075985}
+  table{width:100%;border-collapse:separate;border-spacing:0 8px;font-size:13px}
+  th,td{text-align:left;padding:6px 8px}
+  thead th{color:var(--muted);font-weight:600;font-size:12px}
+  tbody tr{background:var(--soft)}
+  .legend{font-size:12px;color:var(--muted);margin-top:8px}
+  .kpi{display:grid;grid-template-columns:120px 1fr;align-items:center;gap:8px}
+  .meter{height:10px;background:#eef2ff;border-radius:999px;overflow:hidden}
+  .meter>div{height:100%}
+  .m-ok{background:#22c55e}
+  .m-warn{background:#f59e0b}
+  .m-bad{background:#ef4444}
+  .badge{background:#0f172a;color:#fff;border-radius:6px;padding:2px 6px;font-size:11px;font-weight:700}
+  .hint{background:#f8fafc;border:1px dashed var(--border);border-radius:10px;padding:10px;margin-top:12px;font-size:12px}
+  .inline-help{color:#64748b;font-size:12px}
+  .kbd{font-family:ui-monospace, SFMono-Regular, Menlo, monospace;background:#0b1224;color:#e6edf3;padding:2px 6px;border-radius:6px}
+  .tabs{display:flex;gap:6px;border-bottom:1px solid var(--border);margin-bottom:10px}
+  .tabs button{border:1px solid var(--border);border-bottom:0;background:#fff;padding:8px 10px;border-top-left-radius:8px;border-top-right-radius:8px;cursor:pointer}
+  .tabs button.active{background:#eef2ff;color:#1e40af}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="logo">ATP Middleware</div>
+    <div class="nav-group">Monitor</div>
+    <div class="nav" id="nav-monitor">
+      <button data-view="dashboard" class="active">Dashboard</button>
+      <button data-view="incidents">Incidents</button>
+      <button data-view="metrics">Analytics & KPIs</button>
+    </div>
+    <div class="nav-group">Act</div>
+    <div class="nav" id="nav-act">
+      <button data-view="holds">Reservations</button>
+      <button data-view="recon">Reconciliation</button>
+      <button data-view="conflicts">Conflict Resolution</button>
+    </div>
+    <div class="nav-group">Understand</div>
+    <div class="nav" id="nav-understand">
+      <button data-view="sku">SKU Detail</button>
+    </div>
+    <div class="nav-group">Configure</div>
+    <div class="nav" id="nav-config">
+      <button data-view="channels">Channel Config</button>
+      <button data-view="buffers">Buffers & Policies</button>
+      <button data-view="integrations">Integrations</button>
+    </div>
+    <div class="nav-group">Admin</div>
+    <div class="nav" id="nav-admin">
+      <button data-view="audit">Audit Log</button>
+      <button data-view="settings">Settings</button>
+    </div>
+  </aside>
+
+  <main class="content">
+    <div class="title"><h1 id="title">Dashboard</h1><div class="meta">Self-explanatory • channel-first • no duplicate views</div></div>
+    <div id="view"></div>
+  </main>
+</div>
+
+<script>
+// -------- DEMO DATA (unchanged but expanded where needed) --------
+const DATA={
+  items:[
+    { sku:'RED-42', name:'Sneaker Red 42', category:'Footwear',
+      nodes:[ {loc:'Store-001', on_hand:3, reserved:1, buffer:1, inbound:0, damaged:0, atp:0, updated:'7s ago', mismatch:-1} ],
+      holds:[
+        {id:'H-hard-1', type:'hard', qty:1, order_key:'web#1001-1', ttl:'12:31', status:'confirmed'},
+        {id:'H-soft-1', type:'soft', qty:1, order_key:'—', ttl:'00:48', status:'active'}
+      ],
+      events:[
+        {t:'10:05:12', src:'POS', ev:'sale', qty:1, id:'pos#r12345', ver:15422, lat:'2.1s'},
+        {t:'10:02:44', src:'Inventory', ev:'reservation.hard', qty:1, id:'ord_web#1001_ln1', ver:15421, lat:'—'},
+        {t:'09:59:03', src:'OMS', ev:'order_created', qty:1, id:'ev_demand_1001_1', ver:15420, lat:'3.2s'},
+        {t:'09:57:10', src:'Inventory', ev:'reservation.soft.expired', qty:1, id:'H-soft-0', ver:15419, lat:'—'}
+      ],
+      recon:[{ledger:1, physical:0, delta:-1, proposed:'Decrement on-hand by 1 (cycle count)'}],
+      buffers:[{scope:'SKU×Loc×Channel(web)', type:'dynamic', value:'1–2', canary:'25%', exp:'7d', status:'active'}]
+    },
+    { sku:'BLU-11', name:'Tee Blue 11', category:'Apparel',
+      nodes:[ {loc:'WH-01', on_hand:6, reserved:1, buffer:0, inbound:12, damaged:0, atp:5, updated:'32s ago', mismatch:0} ],
+      holds:[{id:'H-hard-9', type:'hard', qty:1, order_key:'mp#AMZ-99-1', ttl:'14:12', status:'active'}],
+      events:[{t:'10:01:00', src:'Marketplace', ev:'order_created(batch)', qty:1, id:'mp#AMZ-99-1', ver:211, lat:'4.7s'}],
+      recon:[],
+      buffers:[{scope:'SKU×Loc', type:'fixed', value:'0', canary:'—', exp:'—', status:'active'}]
+    },
+    { sku:'GRN-21', name:'Jacket Green 21', category:'Outerwear',
+      nodes:[ {loc:'Store-007', on_hand:1, reserved:1, buffer:1, inbound:0, damaged:0, atp:0, updated:'12s ago', mismatch:-1} ],
+      holds:[{id:'H-hard-7', type:'hard', qty:1, order_key:'web#2002-1', ttl:'09:50', status:'confirmed'}],
+      events:[
+        {t:'10:06:30', src:'WMS', ev:'pick(short)', qty:0, id:'pick#s007-22', ver:501, lat:'1.8s'},
+        {t:'10:06:45', src:'Detector', ev:'negative.atp', qty:0, id:'det#neg-1', ver:502, lat:'—'}
+      ],
+      recon:[{ledger:1, physical:0, delta:-1, proposed:'Reduce reserved to 0, raise buffer +1 (24h), reroute order'}],
+      buffers:[{scope:'SKU×Loc×Channel(web)', type:'dynamic', value:'1→2 (auto)', canary:'100% (temp)', exp:'24h', status:'active'}]
+    },
+    { sku:'YLW-09', name:'Cap Yellow 09', category:'Accessories',
+      nodes:[ {loc:'Store-003', on_hand:0, reserved:0, buffer:0, inbound:2, damaged:0, atp:0, updated:'2m ago', mismatch:0} ],
+      holds:[],
+      events:[
+        {t:'09:40:11', src:'OMS', ev:'return', qty:1, id:'ret#3321-1', ver:88, lat:'2.0s'},
+        {t:'09:58:22', src:'WMS', ev:'receive(transfer-in)', qty:2, id:'asn#T-55', ver:92, lat:'2.2s'}
+      ],
+      recon:[],
+      buffers:[{scope:'SKU×Loc', type:'fixed', value:'0', canary:'—', exp:'—', status:'active'}]
+    }
+  ],
+  channels:[
+    {id:'web', name:'Web/App', freq:'real-time', priority:'normal', last:'10:07:11', latency:'1.1s', errors:'0.02%'}
+    ,{id:'pos', name:'POS', freq:'real-time', priority:'high', last:'10:07:08', latency:'0.9s', errors:'0.04%'}
+    ,{id:'amz', name:'Amazon', freq:'batch 5m', priority:'normal', last:'10:05:00', latency:'4.7s', errors:'0.08%'}
+  ],
+  metrics:{ oos:0.8, expiry:6.2, p95:3.6, dlq:0.03, atp_ok:92, atp_low:6, atp_zero:2 }
+};
+
+// --------- HELPERS ---------
+function kpiBar(val, ok, warn){
+  const cls = val<=ok? 'm-ok' : (val<=warn? 'm-warn':'m-bad');
+  const pct = Math.min(100, Math.max(0, (val/(warn*1.4))*100));
+  return `<div class="meter"><div class="${cls}" style="width:${pct}%"></div></div>`
+}
+function pillBy(n){ return n<=0? 'bad': (n<=1? 'warn':'ok'); }
+
+// --------- VIEWS ---------
+const VIEWS={
+  dashboard(){
+    const hotRows = DATA.items.map(i=>{
+      const n=i.nodes[0];
+      const mis = n.mismatch===0? '<span class="pill ok">OK</span>' : `<span class="pill ${n.mismatch<0?'warn':'bad'}">${n.mismatch}</span>`;
+      return `<tr onclick="go('sku','${i.sku}')"><td>${i.sku}</td><td>${i.name}</td><td>${n.loc}</td><td><span class="pill ${pillBy(n.atp)}">${n.atp}</span></td><td>${mis}</td><td><button class="btn" onclick="event.stopPropagation();go('sku','${i.sku}')">Open</button></td></tr>`
+    }).join('');
+
+    const chanRows = DATA.channels.map(c=>`<tr><td>${c.name}</td><td>${c.freq}</td><td>${c.priority}</td><td>${c.last}</td><td>${c.latency}</td><td>${c.errors}</td></tr>`).join('');
+
+    return `
+      <div class="cards">
+        <div class="card h4">
+          <h3>Customer Orders Cancelled (Out of Stock)</h3>
+          <div class="kpi"><div><span class="badge">${DATA.metrics.oos}%</span></div><div>${kpiBar(DATA.metrics.oos,1,2)}</div></div>
+          <div class="inline-help">Lower is better. Target < 1%.</div>
+        </div>
+        <div class="card h4">
+          <h3>Expired Checkout Holds</h3>
+          <div class="kpi"><div><span class="badge">${DATA.metrics.expiry}%</span></div><div>${kpiBar(DATA.metrics.expiry,8,12)}</div></div>
+          <div class="inline-help">Shows abandoned/failed checkouts that released stock.</div>
+        </div>
+        <div class="card h4">
+          <h3>Failed Sync Messages (DLQ)</h3>
+          <div class="kpi"><div><span class="badge">${DATA.metrics.dlq}%</span></div><div>${kpiBar(DATA.metrics.dlq,0.1,0.3)}</div></div>
+          <div class="inline-help">Messages waiting in error queue instead of updating stock.</div>
+        </div>
+
+        <div class="card h6">
+          <h3>Channel Health (Omnichannel)</h3>
+          <table>
+            <thead><tr><th>Channel</th><th>Sync</th><th>Priority</th><th>Last Sync</th><th>Latency</th><th>Errors</th></tr></thead>
+            <tbody>${chanRows}</tbody>
+          </table>
+          <div class="legend">Core to omnichannel accuracy: recency and reliability per channel.</div>
+        </div>
+        <div class="card h6">
+          <h3>Inventory at a Glance</h3>
+          <table>
+            <thead><tr><th>SKU</th><th>Name</th><th>Location</th><th>ATP</th><th>OMS vs WMS</th><th></th></tr></thead>
+            <tbody>${hotRows}</tbody>
+          </table>
+          <div class="legend">Click a SKU to drill into its complete history & actions.</div>
+        </div>
+      </div>`
+  },
+
+  // Unified SKU Detail with tabs: Overview | Reservations | Timeline | Recon | Buffers
+  sku(sku){
+    const item = DATA.items.find(x=>x.sku===sku) || DATA.items[0];
+    const n=item.nodes[0];
+    const tab = window.__tab || 'overview';
+    function tabBtn(id,label){return `<button class="${id===tab?'active':''}" onclick="__setTab('${id}','${item.sku}')">${label}</button>`}
+
+    // Tab bodies
+    const T={
+      overview:`
+        <div class="card h8">
+          <h3>${item.sku} — ${item.name} <span class="legend">${item.category}</span></h3>
+          <table>
+            <thead><tr><th>Location</th><th>On-hand</th><th>Reserved</th><th>Buffer</th><th>Inbound</th><th>Damaged</th><th>ATP</th><th>Updated</th></tr></thead>
+            <tbody><tr><td>${n.loc}</td><td>${n.on_hand}</td><td>${n.reserved}</td><td>${n.buffer}</td><td>${n.inbound}</td><td>${n.damaged}</td><td><span class="pill ${pillBy(n.atp)}">${n.atp}</span></td><td>${n.updated}</td></tr></tbody>
+          </table>
+          <div class="legend">ATP = on_hand − reserved − buffer. Reservations protect customers; buffers absorb lag; recon fixes drift.</div>
+        </div>
+        <div class="card h4">
+          <h3>Recent Events</h3>
+          <table>
+            <thead><tr><th>Time</th><th>Source</th><th>Event</th><th>Qty</th><th>ID</th><th>Version</th><th>Latency</th></tr></thead>
+            <tbody>${item.events.map(e=>`<tr><td>${e.t}</td><td>${e.src}</td><td>${e.ev}</td><td>${e.qty}</td><td>${e.id}</td><td>${e.ver}</td><td>${e.lat}</td></tr>`).join('')}</tbody>
+          </table>
+        </div>`,
+
+      reservations:`
+        <div class="card h12">
+          <h3>Reservations</h3>
+          <table>
+            <thead><tr><th>Hold ID</th><th>Type</th><th>Qty</th><th>Order Key</th><th>TTL</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>${item.holds.map(h=>{
+              const st = h.status==='confirmed'?'info': (h.status==='active'?'warn':'ok');
+              return `<tr><td>${h.id}</td><td>${h.type}</td><td>${h.qty}</td><td>${h.order_key}</td><td>${h.ttl}</td><td><span class=\"pill ${st}\">${h.status}</span></td>
+                <td>
+                  <button class=\"btn\" title=\"Shipped/Picked up\">Consume</button>
+                  <button class=\"btn\" title=\"Short pick / change quantity\">Adjust</button>
+                  <button class=\"btn\" title=\"Cancel / payment failed\">Release</button>
+                </td></tr>`
+            }).join('') || '<tr><td colspan=7>No holds</td></tr>'}</tbody>
+          </table>
+          <div class="hint"><strong>Quick guide:</strong> <span class="kbd">Consume</span> = shipped, <span class="kbd">Adjust</span> = change qty, <span class="kbd">Release</span> = cancel/abandon.</div>
+        </div>`,
+
+      timeline:`
+        <div class="card h12">
+          <h3>Event Timeline</h3>
+          <table>
+            <thead><tr><th>Time</th><th>Source</th><th>Event</th><th>Qty</th><th>ID</th><th>Version</th><th>Latency</th></tr></thead>
+            <tbody>${item.events.map(e=>`<tr><td>${e.t}</td><td>${e.src}</td><td>${e.ev}</td><td>${e.qty}</td><td>${e.id}</td><td>${e.ver}</td><td>${e.lat}</td></tr>`).join('')}</tbody>
+          </table>
+          <div class="legend">Use IDs for idempotency proof; versions for ordering.</div>
+        </div>`,
+
+      recon:`
+        <div class="card h12">
+          <h3>Reconciliation Findings</h3>
+          ${item.recon.length? `<table><thead><tr><th>Ledger</th><th>Physical</th><th>Delta</th><th>Proposed</th><th></th></tr></thead><tbody>
+              ${item.recon.map(r=>`<tr><td>${r.ledger}</td><td>${r.physical}</td><td><span class=\"pill ${r.delta<0?'bad':'warn'}\">${r.delta}</span></td><td>${r.proposed}</td><td><button class=\"btn\">Apply</button></td></tr>`).join('')}
+            </tbody></table>` : '<p>No open findings.</p>'}
+          <div class="legend">Apply with audit; notify OMS/WMS; emit webhooks.</div>
+        </div>`,
+
+      buffers:`
+        <div class="card h12">
+          <h3>Buffers & Policies</h3>
+          <table>
+            <thead><tr><th>Scope</th><th>Type</th><th>Value</th><th>Canary</th><th>Expires</th><th>Status</th></tr></thead>
+            <tbody>${item.buffers.map(b=>`<tr><td>${b.scope}</td><td>${b.type}</td><td>${b.value}</td><td>${b.canary}</td><td>${b.exp}</td><td>${b.status}</td></tr>`).join('') || '<tr><td colspan=6>No policies</td></tr>'}</tbody>
+          </table>
+        </div>`
+    };
+
+    return `
+      <div class="card h12">
+        <div class="tabs">
+          ${tabBtn('overview','Overview')}
+          ${tabBtn('reservations','Reservations')}
+          ${tabBtn('timeline','Timeline')}
+          ${tabBtn('recon','Recon')}
+          ${tabBtn('buffers','Buffers')}
+        </div>
+        <div id="skuBody">${T[tab]}</div>
+      </div>`
+  },
+
+  // Back-compat routes map to SKU tabs
+  holds(sku){ window.__tab='reservations'; return this.sku(sku||'RED-42'); },
+  recon(sku){ window.__tab='recon'; return this.sku(sku||'RED-42'); },
+  timeline(sku){ window.__tab='timeline'; return this.sku(sku||'RED-42'); },
+  explorer(sku){ window.__tab='overview'; return this.sku(sku||'RED-42'); },
+
+  channels(){
+    const rows = DATA.channels.map(c=>`<tr><td>${c.name}</td><td>${c.freq}</td><td>${c.priority}</td><td>${c.last}</td><td>${c.latency}</td><td>${c.errors}</td><td><button class="btn">Edit Rules</button></td></tr>`).join('');
+    return `
+      <div class="cards">
+        <div class="card h12">
+          <h3>Channel Configuration</h3>
+          <table>
+            <thead><tr><th>Channel</th><th>Sync</th><th>Priority</th><th>Last Sync</th><th>Latency</th><th>Errors</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <div class="legend">Set update frequency (real-time vs batch), and precedence (e.g., POS over marketplace).</div>
+        </div>
+      </div>`
+  },
+
+  conflicts(){
+    return `
+      <div class="cards">
+        <div class="card h12">
+          <h3>Conflict Resolution Panel</h3>
+          <table>
+            <thead><tr><th>SKU</th><th>Loc</th><th>OMS</th><th>WMS</th><th>Ledger</th><th>Suggested</th><th>Actions</th></tr></thead>
+            <tbody>
+              <tr><td>RED-42</td><td>Store-001</td><td>2</td><td>1</td><td>1</td><td>Lowest value (1)</td><td><button class="btn">Apply Lowest</button> <button class="btn">Trust WMS</button> <button class="btn">Manual</button></td></tr>
+              <tr><td>GRN-21</td><td>Store-007</td><td>1</td><td>0</td><td>1</td><td>Trust WMS + raise buffer</td><td><button class="btn">Apply</button></td></tr>
+            </tbody>
+          </table>
+          <div class="legend">Fix OMS vs WMS mismatches; optional backorder rules.</div>
+        </div>
+      </div>`
+  },
+
+  incidents(){
+    const rows = [
+      {id:'INC-241', title:'Negative ATP detector', sev:'P1', owner:'Ravi', clock:'00:07', sku:'GRN-21'},
+      {id:'INC-239', title:'Marketplace backlog', sev:'P2', owner:'Asha', clock:'00:18', sku:'BLU-11'}
+    ].map(i=>`<tr><td>${i.id}</td><td>${i.title}</td><td><span class="pill ${i.sev==='P1'?'bad':'warn'}">${i.sev}</span></td><td>${i.owner}</td><td>${i.clock}</td><td><button class="btn" onclick="go('sku','${i.sku}')">Open ${i.sku}</button></td></tr>`).join('');
+
+    return `
+      <div class="cards">
+        <div class="card h8">
+          <h3>Active Incidents</h3>
+          <table>
+            <thead><tr><th>ID</th><th>Title</th><th>Severity</th><th>Owner</th><th>Clock</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="card h4">
+          <h3>Detectors</h3>
+          <ul>
+            <li>ATP < 0 (any SKU×Loc)</li>
+            <li>Event latency p95 > 5s (by source)</li>
+            <li>DLQ > 0.1%</li>
+            <li>OOS cancellations spike > 2× baseline</li>
+          </ul>
+        </div>
+      </div>`
+  },
+
+  metrics(){
+    return `
+      <div class="cards">
+        <div class="card h4"><h3>North Star</h3><p>Customer Orders Cancelled (Out of Stock) < 1%</p></div>
+        <div class="card h4"><h3>Guardrails</h3><ul><li>Conversion ≥ -1%</li><li>Expired Checkout Holds < 8%</li><li>Event p95 < 5s</li><li>Drift < 0.5%</li></ul></div>
+        <div class="card h4"><h3>Ops KPIs</h3><ul><li>Recon same-day close > 80%</li><li>P1 MTTR < 30m</li></ul></div>
+        <div class="card h12"><h3>Latency by Source</h3>
+          <table><thead><tr><th>Source</th><th>p50</th><th>p95</th><th>Error %</th></tr></thead>
+          <tbody><tr><td>POS</td><td>0.8s</td><td>2.4s</td><td>0.04%</td></tr><tr><td>WMS</td><td>1.2s</td><td>3.8s</td><td>0.02%</td></tr><tr><td>Marketplace</td><td>2.1s</td><td>4.9s</td><td>0.08%</td></tr></tbody></table>
+        </div>
+      </div>`
+  },
+
+  buffers(){
+    const rows = DATA.items.flatMap(i=>i.buffers.map(b=>`<tr><td>${i.sku}</td><td>${b.scope}</td><td>${b.type}</td><td>${b.value}</td><td>${b.canary}</td><td>${b.exp}</td><td>${b.status}</td><td><button class="btn">Edit</button></td></tr>`)).join('');
+    return `
+      <div class="cards">
+        <div class="card h12">
+          <h3>Buffers & Policies</h3>
+          <table>
+            <thead><tr><th>SKU</th><th>Scope</th><th>Type</th><th>Value</th><th>Canary</th><th>Expires</th><th>Status</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <div class="legend">Buffers absorb latency & prevent oversell. Canary rollout protects conversion; expiries limit risk.</div>
+        </div>
+      </div>`
+  },
+
+  integrations(){
+    return `
+      <div class="cards">
+        <div class="card h6">
+          <h3>Webhooks</h3>
+          <ul>
+            <li><code>inventory.atp.changed</code> → Edge cache invalidation</li>
+            <li><code>reservation.expired</code> → Clean up stale holds</li>
+            <li><code>inventory.negative</code> → Open incident</li>
+          </ul>
+        </div>
+        <div class="card h6">
+          <h3>API Tester</h3>
+          <div class="hint">Example calls (mocked):</div>
+          <div class="kbd">GET /availability?csid=SKU-RED42&clid=LOC-STORE1 → atp:0,on_hand:3,reserved:1,buffer:1</div>
+          <div class="kbd">POST /reservations/hard … → hold_id:H-hard-2, atp_after:0</div>
+          <div class="kbd">POST /pos-events … → on_hand:2</div>
+        </div>
+      </div>`
+  },
+
+  audit(){
+    return `
+      <div class="cards">
+        <div class="card h12">
+          <h3>Audit Log</h3>
+          <table>
+            <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Target</th><th>Result</th></tr></thead>
+            <tbody>
+              <tr><td>10:07</td><td>ops/asha</td><td>recon.apply</td><td>RED-42@Store-001</td><td>on_hand 1 → 0</td></tr>
+              <tr><td>10:04</td><td>svc/inventory</td><td>reservation.consume</td><td>H-hard-1</td><td>reserved 1 → 0</td></tr>
+              <tr><td>09:58</td><td>svc/inventory</td><td>reservation.expire</td><td>H-soft-0</td><td>reserved 1 → 0</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>`
+  },
+
+  settings(){
+    return `
+      <div class="cards">
+        <div class="card h6"><h3>Roles</h3><ul><li>Viewer — Read only</li><li>Operator — Holds, recon</li><li>Supervisor — Bulk, buffers</li><li>Admin — Policies, roles, SLAs</li></ul></div>
+        <div class="card h6"><h3>SLAs</h3><ul><li>Write p99 < 150ms</li><li>Event p95 < 5s</li><li>DLQ < 0.1%</li></ul></div>
+      </div>`
+  }
+};
+
+// --------- ROUTER & TAB HANDLERS ---------
+function go(view, ctx){
+  document.querySelectorAll('aside .nav button').forEach(b=>b.classList.toggle('active', b.dataset.view===view));
+  document.getElementById('title').innerText = (view||'dashboard').replace(/\b\w/g, c=>c.toUpperCase());
+  document.getElementById('view').innerHTML = (VIEWS[view]||VIEWS.dashboard)(ctx);
+}
+function __setTab(tab, sku){ window.__tab = tab; go('sku', sku); }
+
+// NAV bindings
+[...document.querySelectorAll('aside .nav')].forEach(n=>n.addEventListener('click',e=>{if(e.target.matches('button[data-view]')) go(e.target.dataset.view)}));
+
+go('dashboard');
+</script>
+</body>
+</html>
